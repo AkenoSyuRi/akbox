@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use eframe::egui::{self, Color32, ColorImage, TextureOptions};
 
+const TRANSITION_DURATION: f32 = 0.3;
+
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -25,6 +27,8 @@ struct LoadedImage {
 struct ImageViewer {
     img1: Option<LoadedImage>,
     img2: Option<LoadedImage>,
+    transition: f32, // 0.0 = img1 fully visible, 1.0 = img2 fully visible
+    target: f32,     // target blend value (0.0 or 1.0)
     status_text: String,
 }
 
@@ -83,21 +87,58 @@ fn fit_rect(img_size: [usize; 2], container: egui::Rect) -> egui::Rect {
     egui::Rect::from_min_size(min, egui::vec2(w, h))
 }
 
+/// Smoothstep easing: ease-in-out
+fn ease_in_out(t: f32) -> f32 {
+    t * t * (3.0 - 2.0 * t)
+}
+
 impl eframe::App for ImageViewer {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Read all input at once to avoid borrow conflicts with ctx.load_texture
-        let dropped_files: Vec<PathBuf> = ctx.input(|i| {
-            i.raw
+        // Read all input at once to avoid borrow conflicts
+        let (dropped_files, space_pressed, space_released, dt) = ctx.input(|i| {
+            let files: Vec<PathBuf> = i
+                .raw
                 .dropped_files
                 .iter()
                 .filter_map(|f| f.path.clone())
-                .collect()
+                .collect();
+            (
+                files,
+                i.key_down(egui::Key::Space),
+                i.key_released(egui::Key::Space),
+                i.stable_dt.min(0.1),
+            )
         });
 
         // Process dropped files
         for path in &dropped_files {
             self.load_image(path, ctx);
         }
+
+        // Handle space key (only when both images are loaded)
+        if self.img2.is_some() {
+            if space_pressed {
+                self.target = 1.0;
+            }
+            if space_released {
+                self.target = 0.0;
+            }
+        }
+
+        // Update transition animation
+        let speed = 1.0 / TRANSITION_DURATION;
+        let diff = self.target - self.transition;
+        if diff.abs() > 0.001 {
+            let step = speed * dt;
+            if diff > 0.0 {
+                self.transition = (self.transition + step).min(self.target);
+            } else {
+                self.transition = (self.transition - step).max(self.target);
+            }
+            ctx.request_repaint(); // Keep animating
+        }
+
+        let display_t = ease_in_out(self.transition);
 
         // Render
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -114,14 +155,27 @@ impl eframe::App for ImageViewer {
             } else {
                 let painter = ui.painter();
 
-                // Draw img1
+                // Draw img1 (alpha decreases as display_t increases)
                 if let Some(img) = &self.img1 {
                     let rect = fit_rect(img.size, available);
+                    let alpha = ((1.0 - display_t) * 255.0) as u8;
                     painter.image(
                         img.texture.id(),
                         rect,
                         egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                        Color32::WHITE,
+                        Color32::from_rgba_premultiplied(255, 255, 255, alpha),
+                    );
+                }
+
+                // Draw img2 (alpha increases as display_t increases)
+                if let Some(img) = &self.img2 {
+                    let rect = fit_rect(img.size, available);
+                    let alpha = (display_t * 255.0) as u8;
+                    painter.image(
+                        img.texture.id(),
+                        rect,
+                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                        Color32::from_rgba_premultiplied(255, 255, 255, alpha),
                     );
                 }
             }

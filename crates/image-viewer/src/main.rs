@@ -52,17 +52,16 @@ impl ImageViewer {
 
         let loaded = LoadedImage { texture, size };
 
+        let file_name = path
+            .file_name()
+            .map(|n| n.to_string_lossy())
+            .unwrap_or_else(|| "unknown".into());
+
         if self.img1.is_none() {
-            self.status_text = format!(
-                "Image 1 loaded: {}",
-                path.file_name().unwrap().to_string_lossy()
-            );
+            self.status_text = format!("Image 1 loaded: {}", file_name);
             self.img1 = Some(loaded);
         } else {
-            self.status_text = format!(
-                "Image 2 loaded: {}",
-                path.file_name().unwrap().to_string_lossy()
-            );
+            self.status_text = format!("Image 2 loaded: {}", file_name);
             self.img2 = Some(loaded);
         }
     }

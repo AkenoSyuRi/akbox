@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
-use eframe::egui::{self, ColorImage, TextureOptions};
-use image::GenericImageView;
+use eframe::egui::{self, Color32, ColorImage, TextureOptions};
 
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
@@ -65,12 +64,72 @@ impl ImageViewer {
     }
 }
 
+fn fit_rect(img_size: [usize; 2], container: egui::Rect) -> egui::Rect {
+    let img_aspect = img_size[0] as f32 / img_size[1] as f32;
+    let container_aspect = container.width() / container.height().max(0.001);
+
+    let (w, h) = if img_aspect > container_aspect {
+        let w = container.width();
+        (w, w / img_aspect)
+    } else {
+        let h = container.height();
+        (h * img_aspect, h)
+    };
+
+    let min = egui::pos2(
+        container.center().x - w / 2.0,
+        container.center().y - h / 2.0,
+    );
+    egui::Rect::from_min_size(min, egui::vec2(w, h))
+}
+
 impl eframe::App for ImageViewer {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Read all input at once to avoid borrow conflicts with ctx.load_texture
+        let dropped_files: Vec<PathBuf> = ctx.input(|i| {
+            i.raw
+                .dropped_files
+                .iter()
+                .filter_map(|f| f.path.clone())
+                .collect()
+        });
+
+        // Process dropped files
+        for path in &dropped_files {
+            self.load_image(path, ctx);
+        }
+
+        // Render
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.centered_and_justified(|ui| {
-                ui.label(&self.status_text);
-            });
+            let available = ui.available_rect_before_wrap();
+
+            if self.img1.is_none() {
+                ui.centered_and_justified(|ui| {
+                    ui.label(
+                        egui::RichText::new("Drag images here")
+                            .size(24.0)
+                            .color(Color32::GRAY),
+                    );
+                });
+            } else {
+                let painter = ui.painter();
+
+                // Draw img1
+                if let Some(img) = &self.img1 {
+                    let rect = fit_rect(img.size, available);
+                    painter.image(
+                        img.texture.id(),
+                        rect,
+                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                        Color32::WHITE,
+                    );
+                }
+            }
+        });
+
+        // Status bar
+        egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
+            ui.label(&self.status_text);
         });
     }
 }

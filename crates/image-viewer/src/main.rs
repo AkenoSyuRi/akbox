@@ -99,12 +99,6 @@ fn ease_in_out(t: f32) -> f32 {
 
 impl eframe::App for ImageViewer {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Handle Ctrl+C to close the window
-        if ctx.input(|i| i.key_pressed(egui::Key::C) && i.modifiers.ctrl) {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-            return;
-        }
-
         // Read all input at once to avoid borrow conflicts
         let (dropped_files, space_pressed, space_released, dt) = ctx.input(|i| {
             let files: Vec<PathBuf> = i

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use eframe::egui::{self, Color32, ColorImage, TextureOptions};
 
-const TRANSITION_DURATION: f32 = 0.3;
+const TRANSITION_DURATION: f32 = 0.1;
 
 fn main() -> Result<(), eframe::Error> {
     ctrlc::set_handler(|| {
@@ -97,6 +97,27 @@ fn ease_in_out(t: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
+fn image_alpha_tint(alpha: f32) -> Color32 {
+    let alpha = (alpha.clamp(0.0, 1.0) * 255.0) as u8;
+    Color32::from_rgba_premultiplied(alpha, alpha, alpha, alpha)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn image_alpha_tint_uses_valid_premultiplied_white() {
+        let color = image_alpha_tint(0.5);
+        let [r, g, b, a] = color.to_array();
+
+        assert_eq!(r, a);
+        assert_eq!(g, a);
+        assert_eq!(b, a);
+        assert!(a > 0 && a < 255);
+    }
+}
+
 impl eframe::App for ImageViewer {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Read all input at once to avoid borrow conflicts
@@ -184,12 +205,11 @@ impl eframe::App for ImageViewer {
                 // Draw img2 (alpha increases as display_t increases)
                 if let Some(img) = &self.img2 {
                     let rect = fit_rect(img.size, available);
-                    let alpha = (display_t * 255.0) as u8;
                     painter.image(
                         img.texture.id(),
                         rect,
                         egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                        Color32::from_rgba_premultiplied(255, 255, 255, alpha),
+                        image_alpha_tint(display_t),
                     );
                 }
             }

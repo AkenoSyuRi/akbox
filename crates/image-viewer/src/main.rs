@@ -100,15 +100,17 @@ fn ease_in_out(t: f32) -> f32 {
 impl eframe::App for ImageViewer {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Read all input at once to avoid borrow conflicts
-        let (dropped_files, space_pressed, space_released, dt) = ctx.input(|i| {
+        let (dropped_files, hovered_files, space_pressed, space_released, dt) = ctx.input(|i| {
             let files: Vec<PathBuf> = i
                 .raw
                 .dropped_files
                 .iter()
                 .filter_map(|f| f.path.clone())
                 .collect();
+            let hovering = !i.raw.hovered_files.is_empty();
             (
                 files,
+                hovering,
                 i.key_down(egui::Key::Space),
                 i.key_released(egui::Key::Space),
                 i.stable_dt.min(0.1),
@@ -151,11 +153,19 @@ impl eframe::App for ImageViewer {
 
             if self.img1.is_none() {
                 ui.centered_and_justified(|ui| {
-                    ui.label(
-                        egui::RichText::new("Drag images here")
-                            .size(24.0)
-                            .color(Color32::GRAY),
-                    );
+                    if hovered_files {
+                        ui.label(
+                            egui::RichText::new("Drop to load image")
+                                .size(24.0)
+                                .color(Color32::LIGHT_BLUE),
+                        );
+                    } else {
+                        ui.label(
+                            egui::RichText::new("Drag images here")
+                                .size(24.0)
+                                .color(Color32::GRAY),
+                        );
+                    }
                 });
             } else {
                 let painter = ui.painter();

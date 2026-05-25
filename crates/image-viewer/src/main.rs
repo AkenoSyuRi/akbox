@@ -5,6 +5,11 @@ use eframe::egui::{self, Color32, ColorImage, TextureOptions};
 const TRANSITION_DURATION: f32 = 0.3;
 
 fn main() -> Result<(), eframe::Error> {
+    ctrlc::set_handler(|| {
+        std::process::exit(0);
+    })
+    .expect("failed to set Ctrl-C handler");
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([900.0, 700.0])

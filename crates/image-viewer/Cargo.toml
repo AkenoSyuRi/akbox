@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 eframe = "0.31"
 image = "0.25"
+ctrlc = "3.4"

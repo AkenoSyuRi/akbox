@@ -155,15 +155,14 @@ impl eframe::App for ImageViewer {
             } else {
                 let painter = ui.painter();
 
-                // Draw img1 (alpha decreases as display_t increases)
+                // Draw img1 at full opacity as the base layer
                 if let Some(img) = &self.img1 {
                     let rect = fit_rect(img.size, available);
-                    let alpha = ((1.0 - display_t) * 255.0) as u8;
                     painter.image(
                         img.texture.id(),
                         rect,
                         egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                        Color32::from_rgba_premultiplied(255, 255, 255, alpha),
+                        Color32::WHITE,
                     );
                 }
 

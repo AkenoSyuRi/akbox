@@ -38,6 +38,7 @@ struct ImageViewer {
     transition: f32,
     target: f32,
     status_text: String,
+    scroll_cooldown: f32,
 }
 
 impl ImageViewer {
@@ -178,6 +179,24 @@ impl eframe::App for ImageViewer {
         }
         let display_t = ease_in_out(self.transition);
 
+        // ── Mouse wheel: switch image (works anywhere in the window) ──
+        self.scroll_cooldown = (self.scroll_cooldown - dt).max(0.0);
+        if scroll_delta.abs() > 1.0
+            && self.scroll_cooldown <= 0.0
+            && hover_pos.is_some()
+            && !self.images.is_empty()
+        {
+            self.scroll_cooldown = 0.15;
+            if scroll_delta > 0.0 {
+                self.current_index = self.current_index.saturating_sub(1);
+            } else {
+                let n = self.images.len();
+                self.current_index = (self.current_index + 1).min(n - 1);
+            }
+            self.transition = 0.0;
+            self.target = 0.0;
+        }
+
         // ── Thumbnail interaction state (collected during rendering) ──
         let mut thumbnail_actions: Vec<ThumbnailAction> = Vec::new();
 
@@ -186,27 +205,6 @@ impl eframe::App for ImageViewer {
             .min_width(THUMB_PANEL_WIDTH)
             .resizable(false)
             .show(ctx, |ui| {
-                // Mouse wheel over panel: change current_index
-                if scroll_delta != 0.0
-                    && let Some(pos) = hover_pos
-                        && ui.max_rect().contains(pos) {
-                            if scroll_delta > 0.0 {
-                                let n = self.images.len();
-                                if n > 0 {
-                                    self.current_index = (self.current_index + n - 1) % n;
-                                    self.transition = 0.0;
-                                    self.target = 0.0;
-                                }
-                            } else {
-                                let n = self.images.len();
-                                if n > 0 {
-                                    self.current_index = (self.current_index + 1) % n;
-                                    self.transition = 0.0;
-                                    self.target = 0.0;
-                                }
-                            }
-                        }
-
                 if self.images.is_empty() {
                     ui.label("No images");
                     return;
@@ -216,7 +214,24 @@ impl eframe::App for ImageViewer {
                 let thumb_padding = 6.0;
                 let thumb_width = panel_rect.width() - thumb_padding * 2.0;
                 let spacing = 6.0;
-                let mut y = panel_rect.top() + 4.0;
+
+                // Pre-compute each thumbnail's total item height (thumb + spacing)
+                let mut item_heights: Vec<f32> = Vec::with_capacity(self.images.len());
+                for img in &self.images {
+                    let img_aspect = img.size[0] as f32 / img.size[1] as f32;
+                    let thumb_height = thumb_width / img_aspect;
+                    item_heights.push(thumb_height + spacing);
+                }
+
+                // Scroll offset: center the current thumbnail vertically in the panel
+                let start_y = panel_rect.top() + 4.0;
+                let panel_center_y = panel_rect.top() + panel_rect.height() / 2.0;
+                let current_center_y = start_y
+                    + item_heights[..self.current_index].iter().sum::<f32>()
+                    + item_heights[self.current_index] / 2.0;
+                let scroll_offset = panel_center_y - current_center_y;
+
+                let mut y = start_y + scroll_offset;
 
                 let painter = ui.painter();
 
@@ -239,7 +254,7 @@ impl eframe::App for ImageViewer {
                         painter.rect_stroke(
                             thumb_rect.expand(2.0),
                             0.0,
-                            egui::Stroke::new(2.0, Color32::LIGHT_BLUE),
+                            egui::Stroke::new(3.0, Color32::RED),
                             egui::StrokeKind::Middle,
                         );
                     }
@@ -264,25 +279,40 @@ impl eframe::App for ImageViewer {
                     );
 
                     if is_hovered {
-                        // Dark overlay + delete icon
-                        painter.rect_filled(
-                            thumb_rect,
-                            0.0,
-                            Color32::from_rgba_premultiplied(0, 0, 0, 160),
+                        // Small remove button in top-right corner
+                        let btn_size = 18.0;
+                        let remove_btn_rect = egui::Rect::from_min_size(
+                            egui::pos2(thumb_rect.right() - btn_size - 2.0, thumb_rect.top() + 2.0),
+                            egui::vec2(btn_size, btn_size),
                         );
+                        let hover_btn = hover_pos.is_some_and(|p| remove_btn_rect.contains(p));
+
+                        // Draw remove button background
+                        painter.rect_filled(
+                            remove_btn_rect,
+                            2.0,
+                            if hover_btn {
+                                Color32::from_rgba_premultiplied(200, 40, 40, 220)
+                            } else {
+                                Color32::from_rgba_premultiplied(0, 0, 0, 160)
+                            },
+                        );
+                        // Draw ✕
                         painter.text(
-                            thumb_rect.center(),
+                            remove_btn_rect.center(),
                             egui::Align2::CENTER_CENTER,
                             "✕",
-                            egui::FontId::proportional(28.0),
-                            Color32::from_rgba_premultiplied(255, 80, 80, 255),
+                            egui::FontId::proportional(14.0),
+                            Color32::WHITE,
                         );
 
                         if clicked {
-                            thumbnail_actions.push(ThumbnailAction::Remove(i));
+                            if hover_btn {
+                                thumbnail_actions.push(ThumbnailAction::Remove(i));
+                            } else {
+                                thumbnail_actions.push(ThumbnailAction::Select(i));
+                            }
                         }
-                    } else if clicked {
-                        thumbnail_actions.push(ThumbnailAction::Select(i));
                     }
 
                     y += item_height;

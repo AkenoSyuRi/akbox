@@ -1,0 +1,29 @@
+[package]
+name = "adb-wrapper"
+version = "0.1.0"
+edition = "2024"
+description = "Transparent adb proxy — auto-selects device on multi-device setups"
+
+[lib]
+name = "adb_wrapper"
+path = "src/lib.rs"
+
+[[bin]]
+name = "adb"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+ctrlc = "3"
+dirs = "6"
+inquire = "0.7"
+is-terminal = "0.4"
+serde = { version = "1", features = ["derive"] }
+skim = "4.6"
+toml = "0.8"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_System_Console"] }
+
+[dev-dependencies]
+tempfile = "3"

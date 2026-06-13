@@ -1,0 +1,8 @@
+[package]
+name = "multi2mono"
+version = "0.1.0"
+edition = "2024"
+description = "Split multi-channel WAV files into individual mono channel files"
+
+[dependencies]
+hound = "3.5"

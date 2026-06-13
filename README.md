@@ -10,6 +10,16 @@ A collection of Rust tools in one workspace.
 | `multi2mono` | Split multi-channel WAV into individual mono files |
 | `adb-wrapper` | Transparent adb proxy — auto-selects device on multi-device setups |
 
+## Workspace Commands
+
+```sh
+cargo check --workspace
+cargo test --workspace
+cargo build --release --workspace
+```
+
+Use the per-crate commands below when working on one tool. More detailed usage notes live in each crate's README where available, such as `crates/adb-wrapper/README.md` and `crates/multi2mono/README.md`.
+
 ---
 
 ## image-viewer

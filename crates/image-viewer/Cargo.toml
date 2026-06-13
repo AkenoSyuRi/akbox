@@ -2,6 +2,7 @@
 name = "image-viewer"
 version = "0.1.0"
 edition = "2024"
+description = "Minimal native image viewer with egui"
 
 [dependencies]
 eframe = "0.31"

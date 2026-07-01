@@ -7,11 +7,29 @@ use std::path::{Path, PathBuf};
 use std::process;
 use wav_reader::{PcmData, read_wav};
 
+const HELP: &str = "\
+multi2mono - 将多声道 WAV 拆分为单声道文件
+
+用法:
+    multi2mono <wav文件> [更多文件...]
+
+    也可将 wav 文件拖放到本程序上。
+
+输出:
+    在与源文件同级的 out/ 目录下生成单声道文件。
+
+选项:
+    -h, --help    显示此帮助信息
+";
+
 fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        print!("{HELP}");
+        return;
+    }
     if args.is_empty() {
-        eprintln!("用法: multi2mono <wav文件> [更多文件...]");
-        eprintln!("或将 wav 文件拖放到本程序上");
+        eprint!("{HELP}");
         pause_on_windows();
         process::exit(1);
     }

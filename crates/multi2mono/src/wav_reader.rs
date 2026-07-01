@@ -3,14 +3,24 @@ use std::path::Path;
 
 const WAVE_FORMAT_PCM: u16 = 1;
 const WAVE_FORMAT_IEEE_FLOAT: u16 = 3;
+const WAVE_FORMAT_EXTENSIBLE: u16 = 0xFFFE;
+
+/// KSDATAFORMAT_SUBTYPE_PCM
+const SUBFORMAT_PCM: [u8; 16] = [
+    0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0xAA, 0x00, 0x38,
+    0x9B, 0x71,
+];
+/// KSDATAFORMAT_SUBTYPE_IEEE_FLOAT
+const SUBFORMAT_IEEE_FLOAT: [u8; 16] = [
+    0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0xAA, 0x00, 0x38,
+    0x9B, 0x71,
+];
 
 #[derive(Clone, Copy, Debug)]
 struct FmtChunk {
     audio_format: u16,
     channels: u16,
     sample_rate: u32,
-    byte_rate: u32,
-    block_align: u16,
     bits_per_sample: u16,
 }
 
@@ -74,10 +84,9 @@ fn parse_wav(bytes: &[u8]) -> Result<PcmData, String> {
         offset = end + (size % 2);
     }
 
-    let mut fmt = fmt.ok_or("缺少 fmt 块")?;
+    let fmt = fmt.ok_or("缺少 fmt 块")?;
     let data = data.ok_or("缺少 data 块")?;
 
-    repair_fmt(&mut fmt);
     decode_pcm(fmt, data)
 }
 
@@ -85,39 +94,44 @@ fn parse_fmt(chunk: &[u8]) -> Result<FmtChunk, String> {
     if chunk.len() < 16 {
         return Err("fmt 块过短".into());
     }
+    let audio_format = u16::from_le_bytes([chunk[0], chunk[1]]);
     Ok(FmtChunk {
-        audio_format: u16::from_le_bytes([chunk[0], chunk[1]]),
+        audio_format: resolve_audio_format(audio_format, chunk)?,
         channels: u16::from_le_bytes([chunk[2], chunk[3]]),
         sample_rate: u32::from_le_bytes(chunk[4..8].try_into().unwrap()),
-        byte_rate: u32::from_le_bytes(chunk[8..12].try_into().unwrap()),
-        block_align: u16::from_le_bytes([chunk[12], chunk[13]]),
         bits_per_sample: u16::from_le_bytes([chunk[14], chunk[15]]),
     })
 }
 
-fn bytes_per_sample(bits: u16) -> u16 {
-    bits.div_ceil(8)
+fn resolve_audio_format(audio_format: u16, chunk: &[u8]) -> Result<u16, String> {
+    match audio_format {
+        WAVE_FORMAT_PCM | WAVE_FORMAT_IEEE_FLOAT => Ok(audio_format),
+        WAVE_FORMAT_EXTENSIBLE => {
+            if chunk.len() < 40 {
+                return Err("WAVE_FORMAT_EXTENSIBLE fmt 块过短".into());
+            }
+            let subformat = &chunk[24..40];
+            if subformat == SUBFORMAT_PCM {
+                Ok(WAVE_FORMAT_PCM)
+            } else if subformat == SUBFORMAT_IEEE_FLOAT {
+                Ok(WAVE_FORMAT_IEEE_FLOAT)
+            } else {
+                Err(format!(
+                    "不支持的 extensible 子格式 GUID: {}",
+                    subformat
+                        .iter()
+                        .map(|b| format!("{b:02x}"))
+                        .collect::<Vec<_>>()
+                        .join("")
+                ))
+            }
+        }
+        other => Err(format!("不支持的 audio_format: {other}")),
+    }
 }
 
-/// 修正采集端常见的错误 fmt（例如 `block_align` 未乘通道数）。
-/// PCM 仍按 **标准交错**：每帧 `channels * bytes_per_sample` 字节。
-fn repair_fmt(fmt: &mut FmtChunk) {
-    if fmt.channels == 0 || fmt.bits_per_sample == 0 {
-        return;
-    }
-
-    let sample_bytes = bytes_per_sample(fmt.bits_per_sample);
-    let expected_align = fmt.channels.saturating_mul(sample_bytes);
-    let actual_bytes = fmt.block_align / fmt.channels;
-
-    if actual_bytes < sample_bytes || fmt.block_align == 0 {
-        eprintln!(
-            "警告: fmt 块 block_align={} 与 {} 通道 × {} 字节/样本 不一致，已按 {} 修正（仍按交错帧解析）",
-            fmt.block_align, fmt.channels, sample_bytes, expected_align
-        );
-        fmt.block_align = expected_align;
-        fmt.byte_rate = fmt.sample_rate.saturating_mul(expected_align as u32);
-    }
+fn bytes_per_sample(bits: u16) -> u16 {
+    bits.div_ceil(8)
 }
 
 fn decode_pcm(fmt: FmtChunk, data: &[u8]) -> Result<PcmData, String> {

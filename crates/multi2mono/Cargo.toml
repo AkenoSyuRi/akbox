@@ -6,3 +6,5 @@ description = "Split multi-channel WAV files into individual mono channel files"
 
 [dependencies]
 hound = "3.5"
+ratatui = "0.26"
+crossterm = "0.27"

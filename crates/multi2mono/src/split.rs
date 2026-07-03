@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use crate::wav_reader::{PcmData, read_wav};
 
-pub fn split_wav(path: &Path) -> Result<Vec<PathBuf>, String> {
+pub fn split_wav(path: &Path, gain_db: f64) -> Result<Vec<PathBuf>, String> {
     if !path.is_file() {
         return Err(format!("不是有效文件: {}", path.display()));
     }
@@ -29,13 +29,13 @@ pub fn split_wav(path: &Path) -> Result<Vec<PathBuf>, String> {
 
     match pcm {
         PcmData::Integer16 { samples, .. } => {
-            split_and_write_i16(&samples, channels, &out_dir, &stem, ch_width, mono)
+            split_and_write_i16(&samples, channels, &out_dir, &stem, ch_width, mono, gain_db)
         }
         PcmData::Integer32 { samples, .. } => {
-            split_and_write_i32(&samples, channels, &out_dir, &stem, ch_width, mono)
+            split_and_write_i32(&samples, channels, &out_dir, &stem, ch_width, mono, gain_db)
         }
         PcmData::Float { samples, .. } => {
-            split_and_write_f32(&samples, channels, &out_dir, &stem, ch_width, mono)
+            split_and_write_f32(&samples, channels, &out_dir, &stem, ch_width, mono, gain_db)
         }
     }
 }
@@ -71,13 +71,14 @@ fn split_and_write_i16(
     stem: &str,
     ch_width: usize,
     mono: WavSpec,
+    gain_db: f64,
 ) -> Result<Vec<PathBuf>, String> {
     let bufs = split_interleaved(samples, channels);
     let mut written = Vec::with_capacity(bufs.len());
 
     for (i, buf) in bufs.iter().enumerate() {
         let out_path = out_dir.join(format!("{stem}_ch{:0width$}.wav", i + 1, width = ch_width));
-        write_channel_i16(&out_path, mono, buf)?;
+        write_channel_i16(&out_path, mono, buf, gain_db)?;
         written.push(out_path);
     }
     Ok(written)
@@ -90,13 +91,14 @@ fn split_and_write_i32(
     stem: &str,
     ch_width: usize,
     mono: WavSpec,
+    gain_db: f64,
 ) -> Result<Vec<PathBuf>, String> {
     let bufs = split_interleaved(samples, channels);
     let mut written = Vec::with_capacity(bufs.len());
 
     for (i, buf) in bufs.iter().enumerate() {
         let out_path = out_dir.join(format!("{stem}_ch{:0width$}.wav", i + 1, width = ch_width));
-        write_channel_i32(&out_path, mono, buf)?;
+        write_channel_i32(&out_path, mono, buf, gain_db)?;
         written.push(out_path);
     }
     Ok(written)
@@ -109,41 +111,83 @@ fn split_and_write_f32(
     stem: &str,
     ch_width: usize,
     mono: WavSpec,
+    gain_db: f64,
 ) -> Result<Vec<PathBuf>, String> {
     let bufs = split_interleaved(samples, channels);
     let mut written = Vec::with_capacity(bufs.len());
 
     for (i, buf) in bufs.iter().enumerate() {
         let out_path = out_dir.join(format!("{stem}_ch{:0width$}.wav", i + 1, width = ch_width));
-        write_channel_f32(&out_path, mono, buf)?;
+        write_channel_f32(&out_path, mono, buf, gain_db)?;
         written.push(out_path);
     }
     Ok(written)
 }
 
-fn write_channel_i16(path: &Path, spec: WavSpec, samples: &[i16]) -> Result<(), String> {
+fn write_channel_i16(
+    path: &Path,
+    spec: WavSpec,
+    samples: &[i16],
+    gain_db: f64,
+) -> Result<(), String> {
+    let linear = gain_linear(gain_db);
     let mut writer = WavWriter::create(path, spec).map_err(|e| e.to_string())?;
     for &s in samples {
-        writer.write_sample(s).map_err(|e| e.to_string())?;
+        let sample = if gain_db == 0.0 {
+            s
+        } else {
+            (f64::from(s) * linear)
+                .round()
+                .clamp(f64::from(i16::MIN), f64::from(i16::MAX)) as i16
+        };
+        writer.write_sample(sample).map_err(|e| e.to_string())?;
     }
     writer.finalize().map_err(|e| e.to_string())?;
     Ok(())
 }
 
-fn write_channel_i32(path: &Path, spec: WavSpec, samples: &[i32]) -> Result<(), String> {
+fn write_channel_i32(
+    path: &Path,
+    spec: WavSpec,
+    samples: &[i32],
+    gain_db: f64,
+) -> Result<(), String> {
+    let linear = gain_linear(gain_db);
     let mut writer = WavWriter::create(path, spec).map_err(|e| e.to_string())?;
     for &s in samples {
-        writer.write_sample(s).map_err(|e| e.to_string())?;
+        let sample = if gain_db == 0.0 {
+            s
+        } else {
+            (f64::from(s) * linear)
+                .round()
+                .clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32
+        };
+        writer.write_sample(sample).map_err(|e| e.to_string())?;
     }
     writer.finalize().map_err(|e| e.to_string())?;
     Ok(())
 }
 
-fn write_channel_f32(path: &Path, spec: WavSpec, samples: &[f32]) -> Result<(), String> {
+fn write_channel_f32(
+    path: &Path,
+    spec: WavSpec,
+    samples: &[f32],
+    gain_db: f64,
+) -> Result<(), String> {
+    let linear = gain_linear(gain_db) as f32;
     let mut writer = WavWriter::create(path, spec).map_err(|e| e.to_string())?;
     for &s in samples {
-        writer.write_sample(s).map_err(|e| e.to_string())?;
+        let sample = if gain_db == 0.0 {
+            s
+        } else {
+            (s * linear).clamp(-1.0, 1.0)
+        };
+        writer.write_sample(sample).map_err(|e| e.to_string())?;
     }
     writer.finalize().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+fn gain_linear(gain_db: f64) -> f64 {
+    10_f64.powf(gain_db / 20.0)
 }

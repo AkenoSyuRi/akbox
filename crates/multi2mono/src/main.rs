@@ -50,7 +50,7 @@ fn main() {
     let paths: Vec<PathBuf> = args.iter().flat_map(|a| parse_paths(a)).collect();
     let mut had_error = false;
     for path in paths {
-        match split_wav(&path) {
+        match split_wav(&path, 0.0) {
             Ok(outputs) => {
                 for out in outputs {
                     println!("已写入: {}", out.display());

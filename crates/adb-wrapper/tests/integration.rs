@@ -37,6 +37,7 @@ fn passthrough_devices_to_mock() {
 fn non_interactive_multi_device_errors() {
     let output = Command::new(adb_bin())
         .env("REAL_ADB", mock_adb_path())
+        .env_remove("ANDROID_SERIAL")
         .args(["shell", "getprop"])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -47,6 +48,21 @@ fn non_interactive_multi_device_errors() {
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("non-interactive mode"));
+}
+
+#[test]
+fn android_serial_env_passes_through_non_interactive() {
+    let output = Command::new(adb_bin())
+        .env("REAL_ADB", mock_adb_path())
+        .env("ANDROID_SERIAL", "AAA111")
+        .args(["shell", "getprop"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .expect("run adb shell with ANDROID_SERIAL");
+
+    assert!(output.status.success());
 }
 
 #[test]

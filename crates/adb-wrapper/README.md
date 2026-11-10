@@ -94,9 +94,9 @@ adb logcat
 行为：
 
 - **单设备**：直接透传给官方 adb。
-- **多设备 + 交互终端**：弹出设备选择列表，并自动注入 `-s <serial>`。
-- **多设备 + 脚本/CI/非交互**：不弹选择器，直接报错，要求显式写 `adb -s <serial> ...`。
-- **已经指定 `-s` / `-d` / `-e`**：不干预，直接透传。
+- **多设备 + 交互终端**：首次弹出设备选择列表并自动注入 `-s <serial>`；同一终端会话内后续命令复用该选择，不再重复弹窗。
+- **多设备 + 脚本/CI/非交互**：不弹选择器，直接报错，要求显式写 `adb -s <serial> ...` 或设置 `ANDROID_SERIAL`。
+- **已经指定 `-s` / `-d` / `-e` 或设置 `ANDROID_SERIAL`**：不干预，直接透传。
 
 ### 同目录 `adb-real`（便携）
 
@@ -122,13 +122,42 @@ adb-wrapper/
 
 ```toml
 real_adb = "C:/Android/platform-tools/adb.exe"
-prefer_last_device = true   # 上次设备仍在线时跳过选择
-show_model = true           # 选择列表显示型号
-selector = "inquire"        # inquire | skim | fzf
-last_serial = "123456F"     # 选择后自动写入，无需手改
+prefer_last_device = true    # 在当前终端会话内记住上次选择
+remember_ttl_secs = 43200    # 记忆有效期（秒），0 表示不过期
+show_model = true            # 选择列表显示型号
+selector = "inquire"         # inquire | skim | fzf
 ```
 
 **真实 adb 查找优先级：** `REAL_ADB` 环境变量 → 配置 `real_adb` → 同目录 `adb-real`（不从 PATH 查找，避免递归调用 wrapper）。
+
+## 设备记忆（多设备）
+
+选择结果按**终端会话**记忆，而不是全局共享：
+
+1. `ADB_WRAPPER_SESSION` 环境变量（显式作用域，适合脚本/CI）；
+2. 平台终端会话标识（Unix 会话 ID / Windows 控制台窗口）；
+3. 工作目录兜底。
+
+因此同一终端里连续执行多条 `adb` 命令只会选一次；不同终端并行运行不同脚本时互不干扰。记忆保存在缓存目录的 `state.json`，默认 12 小时后失效，并在每次使用前校验设备是否仍在线。
+
+需要重新选择时：
+
+```bash
+adb --pick shell     # 强制弹出选择器并覆盖当前会话记忆
+adb -s <serial> ...  # 一次性指定，不影响记忆
+```
+
+清除当前会话记忆：
+
+```bash
+adb --forget
+```
+
+脚本或 CI 中也可以完全绕过记忆，直接使用官方 adb 支持的 `ANDROID_SERIAL`：
+
+```bash
+ANDROID_SERIAL=123456F adb shell
+```
 
 ## 常用命令
 
@@ -137,6 +166,7 @@ last_serial = "123456F"     # 选择后自动写入，无需手改
 ```bash
 ADB_WRAPPER_PICK=1 adb shell
 adb --pick shell
+adb --forget
 ```
 
 **自检 / 排查 PATH 与配置：**
@@ -194,7 +224,7 @@ adb completions powershell >> $PROFILE
 
 **CI / 脚本卡住或报错**
 
-多设备且未指定 `-s` 时，非 TTY 环境会主动失败，请写 `adb -s <serial> ...`。
+多设备且未指定 `-s` 时，非 TTY 环境会主动失败，请写 `adb -s <serial> ...` 或设置 `ANDROID_SERIAL=<serial>`。
 
 **无效 `config.toml`**
 

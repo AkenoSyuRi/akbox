@@ -5,7 +5,9 @@ mod config;
 mod device;
 mod diagnostics;
 mod path;
+mod scope;
 mod selector;
+mod state;
 mod tty;
 
 use adb::{list_online_devices, run_adb};
@@ -13,9 +15,10 @@ use anyhow::Result;
 use args::{preprocess_args, WrapperArgs};
 use completions::run_completions;
 use diagnostics::run_wrapper_info;
-use config::{load_config, save_last_serial, Config};
+use config::{load_config, Config};
 use device::AdbDevice;
 use path::resolve_real_adb;
+use scope::current_scope;
 use selector::prompt_select_device;
 use std::process::ExitCode;
 use tty::is_interactive;
@@ -47,11 +50,20 @@ fn run_inner() -> Result<u8> {
     let WrapperArgs {
         force_pick,
         wrapper_info,
+        forget,
         adb_args,
     } = preprocess_args(std::env::args().skip(1).collect());
 
     if wrapper_info {
         return run_wrapper_info();
+    }
+
+    if forget {
+        state::forget(&current_scope())?;
+        if adb_args.is_empty() {
+            println!("adb-wrapper: cleared remembered device for this session");
+            return Ok(0);
+        }
     }
 
     if is_wrapper_command(&adb_args) {
@@ -61,7 +73,10 @@ fn run_inner() -> Result<u8> {
     let config = load_config();
     let real_adb = resolve_real_adb(&config)?;
 
-    if should_passthrough(&adb_args) || has_device_selector(&adb_args) {
+    if should_passthrough(&adb_args)
+        || has_device_selector(&adb_args)
+        || (!force_pick && has_android_serial())
+    {
         return exit_from_status(run_adb(&real_adb, &adb_args)?);
     }
 
@@ -73,10 +88,11 @@ fn run_inner() -> Result<u8> {
     if !is_interactive() {
         eprintln!("adb-wrapper: multiple devices found in non-interactive mode.");
         eprintln!("Please specify device explicitly: adb -s <serial> ...");
+        eprintln!("or set ANDROID_SERIAL=<serial>.");
         return Ok(1);
     }
 
-    let serial = match resolve_serial(&devices, &config, force_pick) {
+    let serial = match resolve_serial(&devices, &config, force_pick, &current_scope()) {
         Ok(serial) => serial,
         Err(err) if is_selection_cancelled(&err) => {
             eprintln!("{err}");
@@ -94,26 +110,32 @@ fn resolve_serial(
     devices: &[AdbDevice],
     config: &Config,
     force_pick: bool,
+    scope: &str,
 ) -> Result<String> {
     if force_pick {
-        return pick_and_remember(devices, config);
+        return pick_and_remember(devices, config, scope);
     }
 
-    if config.prefer_last_device {
-        if let Some(last_serial) = config.last_serial.as_ref() {
-            if devices.iter().any(|device| &device.serial == last_serial) {
-                return Ok(last_serial.clone());
-            }
-        }
+    if config.prefer_last_device
+        && let Some(serial) = state::recall(scope, config.remember_ttl_secs)
+        && devices.iter().any(|device| device.serial == serial)
+    {
+        return Ok(serial);
     }
 
-    pick_and_remember(devices, config)
+    pick_and_remember(devices, config, scope)
 }
 
-fn pick_and_remember(devices: &[AdbDevice], config: &Config) -> Result<String> {
+fn pick_and_remember(devices: &[AdbDevice], config: &Config, scope: &str) -> Result<String> {
     let serial = prompt_select_device(devices, config.show_model, config.selector.clone())?;
-    save_last_serial(&serial);
+    state::remember(scope, &serial, config.remember_ttl_secs);
     Ok(serial)
+}
+
+fn has_android_serial() -> bool {
+    std::env::var("ANDROID_SERIAL")
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false)
 }
 
 fn exit_from_status(status: std::process::ExitStatus) -> Result<u8> {

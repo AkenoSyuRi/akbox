@@ -3,6 +3,8 @@ use crate::path::{
     real_adb_display, real_adb_source_label, resolve_real_adb_details, RealAdbResolution,
     RealAdbSource,
 };
+use crate::scope::current_scope;
+use crate::state;
 use anyhow::Result;
 use is_terminal::IsTerminal;
 use std::io::{self, Write};
@@ -22,6 +24,7 @@ pub fn run_wrapper_info() -> Result<u8> {
     writeln!(out, "stdout tty: {}", std::io::stdout().is_terminal())?;
     writeln!(out, "stderr tty: {}", std::io::stderr().is_terminal())?;
     write_config_section(&mut out, &config)?;
+    write_selection_section(&mut out, &config)?;
     write_env_section(&mut out)?;
     write_recursion_section(&mut out, &resolution)?;
 
@@ -69,21 +72,34 @@ fn write_config_section(out: &mut impl Write, config: &Config) -> Result<()> {
         None => writeln!(out, "config path: <unavailable>")?,
     }
     writeln!(out, "prefer_last_device: {}", config.prefer_last_device)?;
+    writeln!(out, "remember_ttl_secs: {}", config.remember_ttl_secs)?;
     writeln!(out, "show_model: {}", config.show_model)?;
     writeln!(out, "selector: {}", config.selector)?;
-    match config.last_serial.as_ref() {
-        Some(serial) => writeln!(out, "last_serial: {serial}")?,
-        None => writeln!(out, "last_serial: <unset>")?,
+    Ok(())
+}
+
+fn write_selection_section(out: &mut impl Write, config: &Config) -> Result<()> {
+    let scope = current_scope();
+    writeln!(out, "session scope: {scope}")?;
+    match state::state_path() {
+        Some(path) => writeln!(out, "state path: {}", path.display())?,
+        None => writeln!(out, "state path: <unavailable>")?,
+    }
+    match state::recall(&scope, config.remember_ttl_secs) {
+        Some(serial) => writeln!(out, "remembered device: {serial}")?,
+        None => writeln!(out, "remembered device: <unset>")?,
     }
     Ok(())
 }
 
 fn write_env_section(out: &mut impl Write) -> Result<()> {
-    writeln!(
-        out,
-        "ADB_WRAPPER_PICK env: {}",
-        std::env::var("ADB_WRAPPER_PICK").unwrap_or_else(|_| "<unset>".into())
-    )?;
+    for name in ["ADB_WRAPPER_PICK", "ADB_WRAPPER_SESSION", "ANDROID_SERIAL"] {
+        writeln!(
+            out,
+            "{name} env: {}",
+            std::env::var(name).unwrap_or_else(|_| "<unset>".into())
+        )?;
+    }
     Ok(())
 }
 

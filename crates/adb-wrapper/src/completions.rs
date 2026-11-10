@@ -53,7 +53,7 @@ _adb() {{
     fi
 
     if [[ ${{COMP_CWORD}} -eq 1 ]]; then
-        COMPREPLY=($(compgen -W "{cmds} completions --pick" -- "$cur"))
+        COMPREPLY=($(compgen -W "{cmds} completions --pick --forget" -- "$cur"))
         return
     fi
 
@@ -78,6 +78,7 @@ _adb() {{
   local context state line
   _arguments -C \
     '--pick[Force device picker]' \
+    '--forget[Forget remembered device for this session]' \
     '-s[Device serial]:serial:_adb_wrapper_devices' \
     '*:command:->cmds' && return 0
 
@@ -104,7 +105,7 @@ fn fish_script() -> String {
 end
 
 complete -c adb -f -a "{cmds}"
-complete -c adb -f -a "completions --pick"
+complete -c adb -f -a "completions --pick --forget"
 complete -c adb -f -n "__fish_seen_subcommand_from -s" -a "(__adb_wrapper_devices)"
 complete -c adb -f -s s -a "(__adb_wrapper_devices)"
 "#,
@@ -123,7 +124,7 @@ fn powershell_script() -> String {
 Register-ArgumentCompleter -Native -CommandName adb -ScriptBlock {{
     param($wordToComplete, $commandAst, $cursorPosition)
     $commands = @('{cmds}'.Split(' '))
-    $commands + @('completions', '--pick') | Where-Object {{ $_ -like "$wordToComplete*" }} | ForEach-Object {{
+    $commands + @('completions', '--pick', '--forget') | Where-Object {{ $_ -like "$wordToComplete*" }} | ForEach-Object {{
         [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
     }}
     __adb_wrapper_devices | Where-Object {{ $_ -like "$wordToComplete*" }} | ForEach-Object {{

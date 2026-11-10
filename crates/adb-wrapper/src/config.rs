@@ -42,26 +42,36 @@ impl fmt::Display for SelectorKind {
 pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub real_adb: Option<String>,
-    #[serde(default)]
+    /// Remember the selected device within the current terminal/session scope.
+    #[serde(default = "default_prefer_last_device")]
     pub prefer_last_device: bool,
+    /// How long a remembered selection stays valid. `0` disables expiry.
+    #[serde(default = "default_remember_ttl_secs")]
+    pub remember_ttl_secs: u64,
     #[serde(default = "default_show_model")]
     pub show_model: bool,
     #[serde(default)]
     pub selector: SelectorKind,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_serial: Option<String>,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             real_adb: None,
-            prefer_last_device: false,
+            prefer_last_device: default_prefer_last_device(),
+            remember_ttl_secs: default_remember_ttl_secs(),
             show_model: default_show_model(),
             selector: SelectorKind::default(),
-            last_serial: None,
         }
     }
+}
+
+fn default_prefer_last_device() -> bool {
+    true
+}
+
+fn default_remember_ttl_secs() -> u64 {
+    12 * 60 * 60
 }
 
 fn default_show_model() -> bool {
@@ -107,11 +117,7 @@ pub fn load_config_from_path(path: &Path) -> Result<Config> {
     Ok(config)
 }
 
-pub fn save_config(config: &Config) -> Result<()> {
-    let path = config_path().context("adb-wrapper: config directory unavailable")?;
-    save_config_to_path(config, &path)
-}
-
+#[cfg(test)]
 pub fn save_config_to_path(config: &Config, path: &Path) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).with_context(|| {
@@ -132,14 +138,6 @@ pub fn save_config_to_path(config: &Config, path: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn save_last_serial(serial: &str) {
-    let mut config = load_config();
-    config.last_serial = Some(serial.to_string());
-    if let Err(err) = save_config(&config) {
-        eprintln!("adb-wrapper: warning: failed to save last device: {err:#}");
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,11 +146,11 @@ mod tests {
     #[test]
     fn default_config_values() {
         let config = Config::default();
-        assert!(!config.prefer_last_device);
+        assert!(config.prefer_last_device);
+        assert_eq!(config.remember_ttl_secs, 12 * 60 * 60);
         assert!(config.show_model);
         assert_eq!(config.selector, SelectorKind::Inquire);
         assert!(config.real_adb.is_none());
-        assert!(config.last_serial.is_none());
     }
 
     #[test]
@@ -165,9 +163,9 @@ mod tests {
         let config = Config {
             real_adb: Some("C:/adb/adb.exe".into()),
             prefer_last_device: true,
+            remember_ttl_secs: 60,
             show_model: false,
             selector: SelectorKind::Skim,
-            last_serial: Some("123456F".into()),
         };
         save_config_to_path(&config, &path).unwrap();
         let loaded = load_config_from_path(&path).unwrap();

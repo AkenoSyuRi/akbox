@@ -1,17 +1,20 @@
 const FORCE_PICK_ENV: &str = "ADB_WRAPPER_PICK";
 const WRAPPER_FLAG_PICK: &str = "--pick";
 const WRAPPER_FLAG_INFO: &str = "--wrapper-info";
+const WRAPPER_FLAG_FORGET: &str = "--forget";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WrapperArgs {
     pub force_pick: bool,
     pub wrapper_info: bool,
+    pub forget: bool,
     pub adb_args: Vec<String>,
 }
 
 pub fn preprocess_args(args: Vec<String>) -> WrapperArgs {
     let mut force_pick = should_force_pick_from_env();
     let mut wrapper_info = false;
+    let mut forget = false;
     let mut adb_args = args;
 
     if let Some(first) = adb_args.first() {
@@ -21,12 +24,16 @@ pub fn preprocess_args(args: Vec<String>) -> WrapperArgs {
         } else if first == WRAPPER_FLAG_INFO {
             wrapper_info = true;
             adb_args.remove(0);
+        } else if first == WRAPPER_FLAG_FORGET {
+            forget = true;
+            adb_args.remove(0);
         }
     }
 
     WrapperArgs {
         force_pick,
         wrapper_info,
+        forget,
         adb_args,
     }
 }
@@ -62,6 +69,16 @@ mod tests {
         let parsed = preprocess_args(vec!["--wrapper-info".into(), "shell".into()]);
         assert!(parsed.wrapper_info);
         assert_eq!(parsed.adb_args, vec!["shell".to_string()]);
+    }
+
+    #[test]
+    fn strips_forget_flag() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        unsafe { std::env::remove_var(FORCE_PICK_ENV); }
+
+        let parsed = preprocess_args(vec!["--forget".into()]);
+        assert!(parsed.forget);
+        assert!(parsed.adb_args.is_empty());
     }
 
     #[test]
